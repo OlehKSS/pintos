@@ -85,6 +85,12 @@ cd pintos/src/threads/build
 pintos-gdb kernel.o
 ```
 
-and debug your Pintos as the Documentation says.
+and issue the following GDB command
+
+```
+debugpintos
+```
+
+to debug your Pintos.
 
 If you don't understand what these commands are doing, please read the Documentation first carefully.

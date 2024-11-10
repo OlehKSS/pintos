@@ -70,6 +70,8 @@ static void locate_block_devices (void);
 static void locate_block_device (enum block_type, const char *name);
 #endif
 
+void kernel_monitor(void);
+
 int pintos_init (void) NO_RETURN;
 
 /** Pintos main entry point. */
@@ -133,14 +135,14 @@ pintos_init (void)
     /* Run actions specified on kernel command line. */
     run_actions (argv);
   } else {
-    // TODO: no command line passed to kernel. Run interactively 
+    kernel_monitor();
   }
 
   /* Finish up. */
   shutdown ();
   thread_exit ();
 }
-
+
 /** Clear the "BSS", a segment that should be initialized to
    zeros.  It isn't actually stored on disk or zeroed by the
    kernel loader, so we have to zero it ourselves.
@@ -431,3 +433,61 @@ locate_block_device (enum block_type role, const char *name)
     }
 }
 #endif
+
+void kernel_monitor(void)
+{
+  uint8_t c = '\n';
+  const int buffer_size = 10;
+  char* buffer = malloc(buffer_size * sizeof(uint8_t));
+
+  printf("PKUOS>");
+
+  while(1)
+  {
+    for (int i = 0; i < buffer_size; ++i)
+    {
+      c = input_getc();
+
+      if (c == '\n' || c == 13)
+      {
+        if (i == 4)
+        {
+          // check for the exit command
+          char* cmd = malloc((i + 2) * sizeof(uint8_t));
+          memcpy(cmd, buffer, i + 1);
+          cmd[i + 1] = '\n';
+
+          if (strcmp(cmd, "exit"))
+          {
+            printf("\nShut down kernel monitor...\n");
+            return;
+          }
+        }
+        else if (i == 6)
+        {
+          // check for the whoami command
+          char* cmd = malloc((i + 2) * sizeof(uint8_t));
+          memcpy(cmd, buffer, i + 1);
+          cmd[i + 1] = '\n';
+
+          if (strcmp(cmd, "whoami"))
+          {
+            printf("\npint-os-user-id");
+          }
+        }
+        else if (i != 0)
+        {
+          printf("\nError: Unknown command");
+        }
+        
+        i = -1; // Reset to zero again?
+        printf("\nPKUOS>");
+      }
+      else
+      {
+        buffer[i] = c;
+        putchar(c);
+      }
+    }
+  }
+}
