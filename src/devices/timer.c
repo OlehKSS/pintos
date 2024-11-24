@@ -25,15 +25,8 @@ static int64_t ticks;
    Initialized by timer_calibrate(). */
 static unsigned loops_per_tick;
 
-/** List of threads sleeping */
-static struct list timer_list;
-
-struct timer_task
-{
-  struct thread* pthread;
-  int64_t wake_up_tick;
-  struct list_elem elem;
-};
+/** List of sleeping threads */
+static struct list sleep_list;
 
 static intr_handler_func timer_interrupt;
 static bool too_many_loops (unsigned loops);
@@ -49,7 +42,7 @@ timer_init (void)
   pit_configure_channel (0, 2, TIMER_FREQ);
   intr_register_ext (0x20, timer_interrupt, "8254 Timer");
   // Initialize waiting list
-  list_init(&timer_list);
+  list_init(&sleep_list);
 }
 
 /** Calibrates loops_per_tick, used to implement brief delays. */
@@ -101,8 +94,8 @@ static bool
 ticks_less(const struct list_elem *a_, const struct list_elem *b_,
            void *aux UNUSED) 
 {
-  const struct timer_task *a = list_entry (a_, struct timer_task, elem);
-  const struct timer_task *b = list_entry (b_, struct timer_task, elem);
+  const struct thread *a = list_entry (a_, struct thread, sleep_elem);
+  const struct thread *b = list_entry (b_, struct thread, sleep_elem);
   
   return a->wake_up_tick < b->wake_up_tick;
 }
@@ -112,6 +105,8 @@ ticks_less(const struct list_elem *a_, const struct list_elem *b_,
 void
 timer_sleep(int64_t ticks) 
 {
+  ASSERT(intr_get_level () == INTR_ON);
+
   if (ticks <= 0)
   {
     return;
@@ -119,18 +114,9 @@ timer_sleep(int64_t ticks)
 
   enum intr_level old_level = intr_disable();
   struct thread* pthread = thread_current();
-  // pthread->status = THREAD_BLOCKED;
-  struct timer_task * pnew_task = malloc(sizeof(struct timer_task));
+  pthread->wake_up_tick = timer_ticks() + ticks;
 
-  if (pnew_task == NULL)
-  {
-    PANIC("Memory allocation failed!");
-  }
-
-  pnew_task->pthread = pthread;
-  pnew_task->wake_up_tick = timer_ticks() + ticks;
-
-  list_insert_ordered(&timer_list, &pnew_task->elem, ticks_less, NULL);
+  list_insert_ordered(&sleep_list, &pthread->sleep_elem, ticks_less, NULL);
 
   thread_block();
   intr_set_level(old_level);
@@ -214,28 +200,19 @@ timer_interrupt (struct intr_frame *args UNUSED)
   thread_tick();
 
   /** Iterate over sleeping timer tasks and wake if needed */
-  struct list_elem *e = list_begin(&timer_list);
+  struct list_elem *e = list_begin(&sleep_list);
 
-  while (e != list_end(&timer_list))
+  while (e != list_end(&sleep_list))
   {
-    struct timer_task* ptt = list_entry(e, struct timer_task, elem);
+    struct thread* pthread = list_entry(e, struct thread, sleep_elem);
 
-    if (ptt->wake_up_tick > timer_ticks())
+    if (pthread->wake_up_tick > timer_ticks())
     {
       break;
     }
 
     e = list_remove(e);
-    thread_unblock(ptt->pthread);
-
-    /* Enforce preemption. */
-    if (preempts(ptt->pthread))
-    {
-      intr_yield_on_return ();
-    }
-
-    // Free cannot be called from the interrupt context
-    //free(ptt);
+    thread_unblock(pthread);
   }
 }
 
